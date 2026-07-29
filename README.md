@@ -65,6 +65,34 @@ pip install -e ".[dev]"
 pytest tests/
 ```
 
+## Visual demos
+
+Install the extra deps first:
+
+```bash
+pip install -e ".[visual]"
+```
+
+**Matplotlib (headless, renders a GIF)** -- great for servers, CI, or just
+sharing a result without needing a display:
+
+```bash
+python examples/visual_matplotlib.py
+# -> saves examples/falling_balls.gif
+```
+
+**Pygame (interactive window)** -- click anywhere to drop a new ball,
+watch gravity/drag/floor-bounces play out live:
+
+```bash
+python examples/visual_pygame.py
+# click to drop balls, ESC or close window to quit
+```
+
+Note: the floor-bounce behavior in both demos is demo-level logic (a
+simple `world.on_step` hook), not part of the core engine yet -- proper
+collision detection/response is still on the roadmap below.
+
 ## Roadmap
 
 - [ ] Collision detection/response

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydamics"
-version = "0.1.0"
+version = "0.1.1"
 description = "A small, chainable-syntax 2D (and eventually 3D) physics engine."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -24,6 +24,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest"]
+visual = ["matplotlib", "pygame", "pillow"]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/pydamics"
