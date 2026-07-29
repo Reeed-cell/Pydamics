@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydamics"
+version = "0.1.0"
+description = "A small, chainable-syntax 2D (and eventually 3D) physics engine."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Kiko" }
+]
+keywords = ["physics", "engine", "simulation", "2d", "game-dev"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Games/Entertainment",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/pydamics"
+
+[tool.setuptools]
+packages = ["pydamics", "pydamics.physics2d"]
