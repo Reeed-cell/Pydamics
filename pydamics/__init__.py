@@ -1,9 +1,18 @@
 """
 pydamics -- a small, chainable-syntax 2D physics engine.
 
-Three parallel "make my own object X-capable" systems, all following the
-same pattern (a plain function, a mixin class, or a decorator -- pick
-whichever fits how you write your classes):
+v0.4.0 adds one unified entry point over the four "make my own object
+X-capable" systems below:
+
+    pydamics.classify(obj, kind="rigid", mass=9, position=(0, 10))
+    pydamics.classify(obj, kind=["rigid", "solid"])   # multiple kinds at once
+    pydamics.kind_of(obj)                             # -> frozenset({"rigid"}), etc.
+
+    with pydamics.classify(ball, kind="rigid") as cfg:
+        cfg.physics2d.mass(9).velocity(0, 0)
+
+classify() is sugar over attach()/solidify()/fluidify() -- those still
+work exactly as before, unchanged:
 
   RIGID-BODY PHYSICS         SOLID GEOMETRY (SEO)      SPH FLUID PARTICLES
   attach(obj, ...)           solidify(obj, ...)        fluidify(obj, ...)
@@ -11,6 +20,11 @@ whichever fits how you write your classes):
   class X(PhysicsObject)     class X(SolidObject)      class X(FluidObject)
   @physics_class(...)        @solid_class(...)         @fluid_class(...)
   obj.physics2d.gravity(..)  obj.seo.solid(...)         fluid.add(obj)
+
+"gas" is a fourth kind: a stripped-down cousin of fluid/buoyancy --
+`obj.physics2d.gas(zone)` where zone is a GasZone (no drag, no gust, no
+y-component, just a constant push along x). Requesting kind="gas" also
+implies "rigid" under the hood, since the push is a Force like any other.
 
 Core usage:
 
@@ -24,7 +38,7 @@ Core usage:
     world.add(ball)
     world.step(dt=1/60)
 
-Or attach physics to YOUR OWN class -- three equivalent ways:
+Or attach physics to YOUR OWN class -- four equivalent ways, plus classify():
 
     import pydamics
 
@@ -41,9 +55,12 @@ Or attach physics to YOUR OWN class -- three equivalent ways:
     class MyShipClass:
         pass
 
+    # 4. unified classify()
+    pydamics.classify(MyShipClass(), kind="rigid", mass=1500.0, position=(0, 20))
+
 Solid, static or movable geometry (platforms, walls, floors) uses `.seo`
-instead of `.physics2d`, with the same three attachment styles
-(solidify() / SolidObject / @solid_class):
+instead of `.physics2d`, with the same attachment styles
+(solidify() / SolidObject / @solid_class / classify(kind="solid")):
 
     platform = pydamics.solidify(MyPlatform(), position=(0, 0))
     platform.seo.solid(width=8, height=1)
@@ -67,9 +84,10 @@ from .physics_core import (
 )
 from .physics2d import (
     Physics2D, Gravity, Fluid, Friction, Spring, Wind, Attractor, Vortex,
-    Buoyancy, CircleCollider, Force,
+    Buoyancy, GasPush, CircleCollider, Force,
 )
 from .fluid_zone import FluidZone
+from .gas import GasZone
 from .seo import (
     SEO, SEOShapeBox, SEOShapeCircle, solidify, is_solid, SolidObject, solid_class,
 )
@@ -78,16 +96,18 @@ from .sph import (
 )
 from .collision import resolve_all_collisions
 from .spatial_hash import SpatialHash
+from .classify import classify, kind_of
 
 __all__ = [
     "Entity", "World", "Vec2",
     "attach", "has_physics", "compute_total_acceleration", "PhysicsObject", "physics_class",
     "Physics2D", "Gravity", "Fluid", "Friction", "Spring", "Wind",
-    "Attractor", "Vortex", "Buoyancy", "CircleCollider", "Force",
-    "FluidZone",
+    "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider", "Force",
+    "FluidZone", "GasZone",
     "SEO", "SEOShapeBox", "SEOShapeCircle", "solidify", "is_solid", "SolidObject", "solid_class",
     "FluidParticle", "FluidSystem", "fluidify", "is_fluid", "FluidObject", "fluid_class",
     "resolve_all_collisions", "SpatialHash",
+    "classify", "kind_of",
 ]
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"

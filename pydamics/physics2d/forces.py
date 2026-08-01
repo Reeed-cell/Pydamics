@@ -9,6 +9,7 @@ import math
 import random
 from ..vector import Vec2
 from ..fluid_zone import FluidZone
+from ..gas import GasZone
 
 
 class Force:
@@ -216,3 +217,20 @@ class Vortex(Force):
         tangent = Vec2(-radial.y, radial.x)  # perpendicular to radial, CCW
         accel_mag = self.strength / dist
         return tangent * accel_mag
+
+
+class GasPush(Force):
+    """Constant push along x while inside a GasZone -- the deliberately
+    minimal 'gas' counterpart to Buoyancy: no y-component, no drag, no
+    gust, no direction vector. Use Wind or Fluid instead if you need
+    those."""
+
+    name = "gas_push"
+
+    def __init__(self, zone: GasZone):
+        self.zone = zone
+
+    def compute_acceleration(self, entity) -> Vec2:
+        if not self.zone.contains(entity.position):
+            return Vec2.zero()
+        return Vec2(self.zone.force, 0.0)

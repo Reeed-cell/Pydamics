@@ -79,6 +79,43 @@ world.step(dt=1/60)
 `Entity` is just a thin convenience wrapper around `attach()` -- use
 whichever suits how you're structuring your project.
 
+### 3. One unified entry point: classify() + kind_of()
+
+`attach()`/`solidify()`/`fluidify()` are three different verbs to
+remember. `classify()` is a thin dispatcher over all three -- pick a
+`kind` (or a list of them) instead:
+
+```python
+import pydamics
+from pydamics import World
+
+pydamics.classify(ship, kind="rigid", mass=1500.0, position=(0, 20))
+pydamics.classify(platform, kind=["rigid", "solid"], mass=50.0, position=(0, 0))  # both at once
+pydamics.classify(droplet, kind="fluid", mass=1.0, position=(0, 5))
+
+pydamics.kind_of(ship)  # -> frozenset({"rigid"})
+```
+
+It works as a plain call (classification already happened by the time
+you get the return value) or as a `with`-block for grouping setup
+visually -- `__enter__` just hands back the object itself:
+
+```python
+with pydamics.classify(platform, kind=["rigid", "solid"], mass=50.0, position=(0, 0)) as cfg:
+    cfg.physics2d.mass(9).velocity(0, 0)
+    cfg.seo.solid(width=8, height=1)
+```
+
+Passing a property that doesn't apply to the requested kind raises a
+clear error instead of silently doing nothing -- e.g. `mass=` with
+`kind="solid"` alone (no `"rigid"`) raises `TypeError`, since a pure
+solid never gets a `.physics2d` namespace or gets integrated by
+`world.step()`.
+
+`classify()`/`kind_of()` don't replace `attach()`/`solidify()`/
+`fluidify()` -- those work exactly as before; `classify()` is additive
+sugar on top.
+
 ## Attachable forces (`obj.physics2d`)
 
 | Method | Description |
@@ -91,6 +128,7 @@ whichever suits how you're structuring your project.
 | `.attractor(target, strength=50.0, min_distance=0.1)` | Inverse-square pull toward a point/object (orbital-style gravity) |
 | `.vortex(center, strength=20.0, min_distance=0.1)` | Tangential swirling force around a point |
 | `.buoyancy(zone, radius=0.4, gravity=9.8)` | Archimedes-style float/sink force inside a `FluidZone` |
+| `.gas(zone)` | Constant x-only push inside a `GasZone` -- deliberately minimal (no drag/gust/y) |
 | `.custom(force)` | Attach your own `Force` subclass |
 | `.remove(force)` | Detach a previously attached force |
 | `.clear()` | Detach all forces |
@@ -102,6 +140,23 @@ remove/tweak it later:
 g = ball.physics2d.gravity(force=9.8)
 ball.physics2d.remove(g)
 ```
+
+### Chainable setters
+
+Update state after construction -- each returns `self` so they stack:
+
+```python
+ball.physics2d.mass(9).velocity(0, 0).position(3, 4)
+```
+
+| Method | Description |
+|---|---|
+| `.mass(value)` | Update mass |
+| `.position(x, y)` | Update position |
+| `.velocity(x, y)` | Update velocity |
+| `.restitution(value)` | Update collider bounciness -- **requires `.collider()` already called**, raises `RuntimeError` otherwise |
+| `.radius(value)` | Update collider size -- same requirement |
+| `.static(bool)` | Toggle whether a collider is static -- same requirement |
 
 ## Collision
 
@@ -171,6 +226,19 @@ way a helium balloon dropped in water would rocket upward in real life.
 ```python
 pool = pydamics.FluidZone(min_point=(-5, 0), max_point=(5, 5), density=1.8, drag=1.5)
 cork.physics2d.buoyancy(zone=pool, radius=0.3)
+```
+
+**GasZone (minimal air push)** — deliberately much simpler than
+`FluidZone`: no buoyancy, no drag, no gust, no y-component or direction
+vector. Just a constant push along x for anything inside, via
+`.physics2d.gas(zone)`. Requesting `kind="gas"` through `classify()`
+also gives the object `.physics2d` (a `"rigid"` classification comes
+along with it), since the push is a `Force` like any other:
+
+```python
+wind_tunnel = pydamics.GasZone(min_point=(-10, -10), max_point=(10, 10), force=5.0)
+puff = pydamics.classify(MyParticle(), kind="gas", mass=0.2, position=(0, 0)).obj
+puff.physics2d.gas(wind_tunnel)
 ```
 
 **FluidSystem (full SPH)** — real smoothed-particle-hydrodynamics: particles
