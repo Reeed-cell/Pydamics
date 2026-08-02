@@ -9,8 +9,10 @@ from .physics_core import attach
 
 
 class Entity:
-    def __init__(self, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
-        attach(self, mass=mass, position=position, velocity=velocity)
+    def __init__(self, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0),
+                 angle: float = 0.0, angular_velocity: float = 0.0, moment_of_inertia=None):
+        attach(self, mass=mass, position=position, velocity=velocity,
+               angle=angle, angular_velocity=angular_velocity, moment_of_inertia=moment_of_inertia)
 
     def __repr__(self) -> str:
         return f"Entity(pos={self.position}, vel={self.velocity}, mass={self.mass})"

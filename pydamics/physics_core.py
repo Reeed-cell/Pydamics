@@ -27,11 +27,15 @@ from .physics2d import Physics2D
 _REQUIRED_ATTRS = ("position", "velocity", "mass", "_forces", "_prev_accel", "physics2d")
 
 
-def attach(obj, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
+def attach(obj, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0),
+           angle: float = 0.0, angular_velocity: float = 0.0, moment_of_inertia=None):
     """
     Make `obj` physics-capable, in place. Adds `.position`, `.velocity`,
     `.mass`, and a `.physics2d` namespace so `obj.physics2d.gravity(...)`
-    etc. work exactly like they would on an Entity.
+    etc. work exactly like they would on an Entity. Also adds rotational
+    state (`.angle`, `.angular_velocity`, `.moment_of_inertia`) -- these
+    default to values that make rotation a complete no-op unless you
+    explicitly apply torque or an off-center collision imparts spin.
 
     Returns `obj`, so this can be chained:
         ship = pydamics.attach(Spaceship("Falcon"), mass=1500.0, position=(0, 20))
@@ -60,6 +64,24 @@ def attach(obj, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
     obj._forces = []
     obj._collider = None
 
+    # rotational state -- defaults are a complete no-op (angle never
+    # changes unless torque is applied or an off-center collision hits)
+    obj.angle = float(angle)
+    obj.angular_velocity = float(angular_velocity)
+    obj.moment_of_inertia = float(moment_of_inertia) if moment_of_inertia is not None else obj.mass * 0.5
+    obj._prev_angular_accel = 0.0
+    obj._torques = []
+
+    # sleep/deactivation state -- disabled by default (sleep_threshold=None
+    # means "never sleep"), so existing behavior is unaffected unless a
+    # user explicitly opts an entity into sleeping
+    obj._sleep_threshold = None
+    obj._sleep_still_time = 0.0
+    obj._is_sleeping = False
+
+    # per-entity collision callbacks, registered via .physics2d.on_collision()
+    obj._collision_callbacks = []
+
     def _add_force(force):
         obj._forces.append(force)
 
@@ -70,9 +92,13 @@ def attach(obj, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
     def _clear_forces():
         obj._forces.clear()
 
+    def _add_torque(torque):
+        obj._torques.append(torque)
+
     obj._add_force = _add_force
     obj._remove_force = _remove_force
     obj._clear_forces = _clear_forces
+    obj._add_torque = _add_torque
     obj.physics2d = Physics2D(obj)
 
     return obj
@@ -91,6 +117,15 @@ def compute_total_acceleration(obj) -> Vec2:
     total = Vec2.zero()
     for force in obj._forces:
         total += force.compute_acceleration(obj)
+    return total
+
+
+def compute_total_torque(obj) -> float:
+    """Sum every attached torque's contribution (a scalar, since 2D
+    rotation only has one axis). Mirrors compute_total_acceleration."""
+    total = 0.0
+    for torque in obj._torques:
+        total += torque.compute_torque(obj)
     return total
 
 
@@ -113,11 +148,14 @@ class PhysicsObject:
     whichever fits how you structure your classes.
     """
 
-    def __init__(self, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
-        attach(self, mass=mass, position=position, velocity=velocity)
+    def __init__(self, mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0),
+                 angle: float = 0.0, angular_velocity: float = 0.0, moment_of_inertia=None):
+        attach(self, mass=mass, position=position, velocity=velocity,
+               angle=angle, angular_velocity=angular_velocity, moment_of_inertia=moment_of_inertia)
 
 
-def physics_class(mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
+def physics_class(mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0),
+                   angle: float = 0.0, angular_velocity: float = 0.0, moment_of_inertia=None):
     """
     Class decorator -- a third way to make your own class physics-capable,
     for when you don't want to touch inheritance or call attach() by hand:
@@ -139,7 +177,9 @@ def physics_class(mass: float = 1.0, position=(0.0, 0.0), velocity=(0.0, 0.0)):
         original_init = cls.__init__
 
         def new_init(self, *args, **kwargs):
-            attach(self, mass=mass, position=position, velocity=velocity)
+            attach(self, mass=mass, position=position, velocity=velocity,
+                   angle=angle, angular_velocity=angular_velocity,
+                   moment_of_inertia=moment_of_inertia)
             original_init(self, *args, **kwargs)
 
         cls.__init__ = new_init

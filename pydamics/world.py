@@ -6,9 +6,11 @@ Two ways to run it:
   2. Auto-run: world.run(dt=1/60)        <- spins up an internal background
                world.stop()                 thread that calls step() for you
 
-Each step() does, in order: integrate every entity's motion, resolve
-entity-entity collisions, resolve entity-vs-SEO-solid collisions, step
-any attached fluid systems, then fire the on_step hook.
+Each step() does, in order: integrate every AWAKE entity's motion
+(sleeping ones are skipped), resolve entity-entity and entity-vs-SEO-
+solid collisions (dispatching on_collision callbacks and waking any
+sleeping objects that got hit), step any attached fluid systems, check
+trigger zones, then fire the on_step hook.
 """
 from __future__ import annotations
 import threading
@@ -23,6 +25,8 @@ class World:
         self._entities = []
         self._solids = []          # pure SEO objects (not necessarily physics-capable)
         self._fluid_systems = []   # list of (FluidSystem, gravity) pairs
+        self._triggers = []        # list of TriggerZone
+        self._collision_callbacks = []
         self._running = False
         self._thread: threading.Thread | None = None
         self.time_elapsed = 0.0
@@ -65,6 +69,21 @@ class World:
         yourself instead if you want more control."""
         self._fluid_systems.append((fluid_system, gravity))
 
+    def add_trigger(self, zone) -> None:
+        """Register a TriggerZone -- checked every step() for entities
+        entering/exiting, firing its on_enter/on_exit callbacks."""
+        self._triggers.append(zone)
+
+    def remove_trigger(self, zone) -> None:
+        if zone in self._triggers:
+            self._triggers.remove(zone)
+
+    def on_collision(self, callback) -> None:
+        """Register callback(a, b, contact_point, normal, impulse) --
+        called once for every collision actually resolved this step
+        (entity-entity or entity-vs-solid). `normal` points from a to b."""
+        self._collision_callbacks.append(callback)
+
     @property
     def entities(self):
         return list(self._entities)
@@ -76,16 +95,34 @@ class World:
     # --- manual stepping ---
     def step(self, dt: float = 1 / 60) -> None:
         for entity in self._entities:
+            if getattr(entity, "_is_sleeping", False):
+                continue  # skipped entirely -- no force computation, no integration
             velocity_verlet_step(entity, dt)
 
         # physicsified solids (physics-capable AND have .seo) live in
         # self._entities already, so combine them with the pure-SEO list
-        # for collision purposes
+        # for collision purposes. Sleeping entities still participate here
+        # (not filtered out) so a moving object can wake them on contact.
         all_solids = self._solids + [e for e in self._entities if hasattr(e, "seo")]
-        resolve_all_collisions(self._entities, all_solids)
+        events = resolve_all_collisions(self._entities, all_solids)
+
+        for event in events:
+            for callback in self._collision_callbacks:
+                callback(event.a, event.b, event.contact_point, event.normal, event.impulse)
+            # per-object callbacks get a normal pointing AWAY from the
+            # other object -- "the direction I got pushed"
+            if hasattr(event.a, "_collision_callbacks"):
+                for callback in event.a._collision_callbacks:
+                    callback(event.b, event.contact_point, -event.normal, event.impulse)
+            if hasattr(event.b, "_collision_callbacks"):
+                for callback in event.b._collision_callbacks:
+                    callback(event.a, event.contact_point, event.normal, event.impulse)
 
         for fluid_system, gravity in self._fluid_systems:
             fluid_system.step(dt, gravity=gravity)
+
+        for trigger in self._triggers:
+            trigger.check(self._entities)
 
         self.time_elapsed += dt
         if self.on_step:

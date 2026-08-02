@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydamics"
-version = "0.4.0"
+version = "0.5.0"
 description = "A small, chainable-syntax 2D (and eventually 3D) physics engine."
 readme = "README.md"
 requires-python = ">=3.9"

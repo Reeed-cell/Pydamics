@@ -48,17 +48,24 @@ class SEO:
         self._obj = obj
         self.shape = None
         self.restitution = 0.3
+        self.layer = "default"
+        self.collides_with = None
 
     def solid(self, width: float = None, height: float = None,
-              radius: float = None, restitution: float = 0.3) -> "SEO":
+              radius: float = None, restitution: float = 0.3,
+              layer: str = "default", collides_with=None) -> "SEO":
         """Give this object a solid shape. Pass width+height for a
-        rectangular platform/wall, or radius for a circular solid."""
+        rectangular platform/wall, or radius for a circular solid.
+        `layer`/`collides_with` work exactly like on CircleCollider --
+        symmetric-AND filtering, None (default) collides with everything."""
         if radius is not None:
             self.shape = SEOShapeCircle(radius)
         else:
             self.shape = SEOShapeBox(width if width is not None else 1.0,
                                       height if height is not None else 1.0)
         self.restitution = restitution
+        self.layer = layer
+        self.collides_with = set(collides_with) if collides_with is not None else None
         return self
 
 

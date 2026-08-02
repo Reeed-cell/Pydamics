@@ -170,6 +170,95 @@ entities that have a `.physics2d.collider(...)` -- impulse-based, with a
 `restitution` (bounciness) you set per object; the lower of the two
 objects' restitution values is used per collision.
 
+### Layers and masks
+
+Filter what collides with what:
+
+```python
+bullet.physics2d.collider(radius=0.1, layer="player_bullet", collides_with={"enemy"})
+enemy.physics2d.collider(radius=0.5, layer="enemy")
+wall.physics2d.collider(radius=1.0, layer="wall")
+```
+
+`collides_with=None` (the default) collides with everything regardless
+of layer. When set, filtering is symmetric-AND: a pair only collides if
+**each** side's `collides_with` (when set) includes the other's layer —
+so the bullet above hits the enemy but passes straight through the
+wall. `.seo.solid()` takes the same `layer`/`collides_with` kwargs.
+
+### Collision events
+
+```python
+world.on_collision(lambda a, b, point, normal, impulse: print(f"{a} hit {b}"))
+ball.physics2d.on_collision(lambda other, point, normal, impulse: print("I got hit"))
+```
+
+Fires once per step for every collision actually resolved (entity-entity
+or entity-vs-solid). `world.on_collision`'s `normal` points from `a` to
+`b`; the per-object `.physics2d.on_collision` gets a normal pointing
+*away from* the other object (i.e. "the direction I got pushed").
+
+## Trigger / sensor zones
+
+Overlap detection with `on_enter`/`on_exit` callbacks, but no collision
+response — nothing bounces off a trigger. Good for checkpoints, pickups,
+aggro radii, damage zones:
+
+```python
+zone = pydamics.TriggerZone(position=(10, 0), radius=2.0,
+                             on_enter=lambda e: print("entered!"),
+                             on_exit=lambda e: print("left!"))
+world.add_trigger(zone)
+```
+
+Pass `radius` for a circular zone or `width`+`height` for a rectangular
+one. Entities are checked against their `.position` (treated as a
+point, ignoring any collider radius) — matches the simple "is this
+point inside this zone" check most games actually want. Callbacks fire
+once per transition, not every frame while inside/outside; if an entity
+is already inside on the first check (e.g. it spawned there), `on_enter`
+fires then.
+
+## Sleep / deactivation
+
+Skip integrating objects that have settled, for performance:
+
+```python
+ball.physics2d.sleep_threshold = 0.05   # velocity below this -> eligible to sleep
+ball.physics2d.is_sleeping              # read-only
+ball.physics2d.wake()                   # force it awake immediately
+```
+
+`sleep_threshold` defaults to `None` (sleeping disabled) — opt-in only,
+so nothing changes unless you set it. Once velocity stays below the
+threshold for half a second, the object stops getting force-computed
+and integrated entirely, but still participates in collision detection
+— a moving object hitting a sleeping one wakes it automatically. Set
+`sleep_threshold = None` again to disable sleep and wake it.
+
+## Orientation — angle, angular velocity, torque
+
+Every `Entity`/`attach()`-ed object has rotational state alongside its
+linear position/velocity, integrated with the same velocity-Verlet
+scheme:
+
+```python
+ball = Entity(mass=1.0, position=(0, 10), angle=0.0, angular_velocity=0.0,
+              moment_of_inertia=None)   # defaults to mass * 0.5
+ball.physics2d.torque(magnitude=5.0)    # steady torque, returns a Torque you can remove
+ball.physics2d.remove_torque(t)
+```
+
+Defaults are a complete no-op — `angle`/`angular_velocity` never change
+unless you apply torque or an off-center collision imparts spin. That
+second part only actually happens for **box** solids, not circles: since
+the collision normal is always computed from the contact point toward a
+circle's own center, a circular mover's lever arm is always exactly
+parallel to its own impulse (cross product is provably always zero) —
+matching real frictionless sphere physics (no tangential/friction impulse
+is modeled here). A physicsified box hit away from its center, though,
+picks up genuine torque, since a box's geometry isn't radially symmetric.
+
 ## SEO — Solid Environment Objects
 
 For solid geometry (platforms, walls, floors) that things collide with,
@@ -310,9 +399,16 @@ See [pydamicsvisual](https://pypi.org/project/pydamicsvisual/) for details.
 
 ## Roadmap
 
+**Staged for v0.5.1:**
+- [ ] Raycasting (`world.raycast(...)`, `world.raycast_all(...)`)
+- [ ] Dynamic box/capsule colliders for moving entities (currently circles only for movers; boxes exist for SEO solids)
+- [ ] Spatial query API (`world.query_radius(...)`, `world.query_box(...)`)
+
+**Further out:**
 - [ ] 3D physics namespace (`entity.physics3d`)
-- [ ] Polygon collision shapes (currently circles + AABB boxes only)
-- [ ] Spatial hashing for SPH/collision broad-phase (currently naive O(n²), fine to a few hundred objects)
+- [ ] Polygon collision shapes
+- [ ] Joints/constraints (pin, distance, fixed, rope) -- likely its own v0.6.0, this is a bigger undertaking than anything above (iterative constraint solver)
+- [ ] Tangential/friction impulses (would let circular movers pick up spin from off-center contact, not just boxes)
 
 ## Publishing (for maintainers)
 

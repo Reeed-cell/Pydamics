@@ -19,7 +19,10 @@ Chainable setters (each returns self, so they stack):
 """
 from __future__ import annotations
 from ..vector import Vec2
-from .forces import Force, Gravity, Fluid, Friction, Spring, Wind, Attractor, Buoyancy, Vortex, GasPush
+from .forces import (
+    Force, Gravity, Fluid, Friction, Spring, Wind, Attractor, Buoyancy,
+    Vortex, GasPush, Torque, ConstantTorque,
+)
 from .collider import CircleCollider
 
 
@@ -101,11 +104,15 @@ class Physics2D:
     # --- collider shape ---
 
     def collider(self, radius: float = 0.5, restitution: float = 0.6,
-                 static: bool = False) -> CircleCollider:
+                 static: bool = False, layer: str = "default",
+                 collides_with=None) -> CircleCollider:
         """Give this object a circular collision shape -- the World's
         step() will detect and resolve overlaps with other colliders
-        (and with SEO solids) automatically."""
-        c = CircleCollider(radius=radius, restitution=restitution, static=static)
+        (and with SEO solids) automatically. `layer`/`collides_with`
+        filter which other colliders/solids this one actually interacts
+        with (symmetric-AND -- see CircleCollider for details)."""
+        c = CircleCollider(radius=radius, restitution=restitution, static=static,
+                            layer=layer, collides_with=collides_with)
         self._entity._collider = c
         return c
 
@@ -158,8 +165,63 @@ class Physics2D:
         self._require_collider("static").static = bool(value)
         return self
 
+    # --- torque (rotational analog of forces) ---
+
+    def torque(self, magnitude: float = 5.0) -> ConstantTorque:
+        """Attach a steady torque (applied every step until removed).
+        Returns the Torque object so it can be held onto and removed
+        later, same pattern as the force-attaching methods."""
+        t = ConstantTorque(magnitude=magnitude)
+        self._entity._add_torque(t)
+        return t
+
+    def custom_torque(self, torque: Torque) -> Torque:
+        """Attach any custom Torque subclass (implement compute_torque(entity))."""
+        self._entity._add_torque(torque)
+        return torque
+
+    def remove_torque(self, torque: Torque) -> None:
+        if torque in self._entity._torques:
+            self._entity._torques.remove(torque)
+
+    # --- collision events ---
+
+    def on_collision(self, callback) -> None:
+        """Register callback(other, contact_point, normal, impulse) --
+        called every step this object is involved in a resolved
+        collision. `normal` points away from `other` (i.e. "the
+        direction I got pushed")."""
+        self._entity._collision_callbacks.append(callback)
+
+    # --- sleep / deactivation ---
+
+    @property
+    def sleep_threshold(self):
+        """Velocity magnitude below which this object can fall asleep
+        (skipped by force computation/integration until woken). None
+        (the default) disables sleeping entirely -- opt-in only."""
+        return self._entity._sleep_threshold
+
+    @sleep_threshold.setter
+    def sleep_threshold(self, value) -> None:
+        self._entity._sleep_threshold = value
+        if value is None:
+            self._entity._is_sleeping = False
+            self._entity._sleep_still_time = 0.0
+
+    @property
+    def is_sleeping(self) -> bool:
+        return self._entity._is_sleeping
+
+    def wake(self) -> None:
+        """Wake this object up immediately (e.g. after being hit) and
+        reset its still-time counter."""
+        self._entity._is_sleeping = False
+        self._entity._sleep_still_time = 0.0
+
 
 __all__ = [
     "Physics2D", "Force", "Gravity", "Fluid", "Friction", "Spring", "Wind",
     "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider",
+    "Torque", "ConstantTorque",
 ]

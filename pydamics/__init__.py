@@ -75,16 +75,40 @@ or fluidify() your own class and register it directly:
     fluid.add_particle(position=(0, 5))                 # built-in particle
     fluid.add(pydamics.fluidify(MyDroplet(), position=(1, 5)))  # your own class
     world.add_fluid_system(fluid)
+
+v0.5.0 adds Tier-1 gameplay-physics features:
+
+    # collision layers/masks -- filter what collides with what
+    ball.physics2d.collider(radius=0.4, layer="player_bullet", collides_with={"enemy", "wall"})
+
+    # collision events
+    world.on_collision(lambda a, b, point, normal, impulse: print("hit!"))
+    ball.physics2d.on_collision(lambda other, point, normal, impulse: print("I got hit"))
+
+    # trigger/sensor zones (overlap detection, no collision response)
+    world.add_trigger(pydamics.TriggerZone(position=(0, 0), radius=2,
+                                            on_enter=lambda e: print("entered!")))
+
+    # sleep/deactivation
+    ball.physics2d.sleep_threshold = 0.05   # None (default) = never sleeps
+    ball.physics2d.is_sleeping              # read-only
+    ball.physics2d.wake()
+
+    # entity orientation -- angle/angular_velocity/torque, off-center
+    # collisions impart spin automatically
+    ball = Entity(mass=1.0, position=(0, 10), angle=0.0, angular_velocity=0.0)
+    ball.physics2d.torque(magnitude=5.0)
 """
 from .entity import Entity
 from .world import World
 from .vector import Vec2
 from .physics_core import (
-    attach, has_physics, compute_total_acceleration, PhysicsObject, physics_class,
+    attach, has_physics, compute_total_acceleration, compute_total_torque,
+    PhysicsObject, physics_class,
 )
 from .physics2d import (
     Physics2D, Gravity, Fluid, Friction, Spring, Wind, Attractor, Vortex,
-    Buoyancy, GasPush, CircleCollider, Force,
+    Buoyancy, GasPush, CircleCollider, Force, Torque, ConstantTorque,
 )
 from .fluid_zone import FluidZone
 from .gas import GasZone
@@ -94,20 +118,24 @@ from .seo import (
 from .sph import (
     FluidParticle, FluidSystem, fluidify, is_fluid, FluidObject, fluid_class,
 )
-from .collision import resolve_all_collisions
+from .collision import resolve_all_collisions, should_collide, CollisionEvent
 from .spatial_hash import SpatialHash
 from .classify import classify, kind_of
+from .trigger import TriggerZone
 
 __all__ = [
     "Entity", "World", "Vec2",
-    "attach", "has_physics", "compute_total_acceleration", "PhysicsObject", "physics_class",
+    "attach", "has_physics", "compute_total_acceleration", "compute_total_torque",
+    "PhysicsObject", "physics_class",
     "Physics2D", "Gravity", "Fluid", "Friction", "Spring", "Wind",
     "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider", "Force",
+    "Torque", "ConstantTorque",
     "FluidZone", "GasZone",
     "SEO", "SEOShapeBox", "SEOShapeCircle", "solidify", "is_solid", "SolidObject", "solid_class",
     "FluidParticle", "FluidSystem", "fluidify", "is_fluid", "FluidObject", "fluid_class",
-    "resolve_all_collisions", "SpatialHash",
+    "resolve_all_collisions", "should_collide", "CollisionEvent", "SpatialHash",
     "classify", "kind_of",
+    "TriggerZone",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

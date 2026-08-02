@@ -70,6 +70,12 @@ class Vec2:
     def dot(self, other: "Vec2") -> float:
         return self.x * other.x + self.y * other.y
 
+    def cross(self, other: "Vec2") -> float:
+        """2D cross product -- returns a scalar (the z-component of the
+        3D cross product with both vectors' z=0). Used for torque =
+        lever_arm x force."""
+        return self.x * other.y - self.y * other.x
+
     def copy(self) -> "Vec2":
         return Vec2(self.x, self.y)
 

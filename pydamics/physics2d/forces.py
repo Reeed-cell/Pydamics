@@ -234,3 +234,28 @@ class GasPush(Force):
         if not self.zone.contains(entity.position):
             return Vec2.zero()
         return Vec2(self.zone.force, 0.0)
+
+
+class Torque:
+    """Base class for torque contributors -- the rotational analog of
+    Force. Implement compute_torque(entity) -> float (a scalar, since 2D
+    rotation only has one axis)."""
+
+    name = "torque"
+
+    def compute_torque(self, entity) -> float:
+        raise NotImplementedError
+
+
+class ConstantTorque(Torque):
+    """A steady torque, applied every step it's attached -- for a
+    one-off nudge, attach then .physics2d.remove_torque(t) after a step
+    or two."""
+
+    name = "constant_torque"
+
+    def __init__(self, magnitude: float = 5.0):
+        self.magnitude = magnitude
+
+    def compute_torque(self, entity) -> float:
+        return self.magnitude
