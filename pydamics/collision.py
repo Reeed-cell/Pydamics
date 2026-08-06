@@ -1,33 +1,41 @@
 """
-Circle collision detection and impulse-based response.
+Collision detection and impulse-based response -- circles and oriented
+(rotated) boxes.
 
 Unlike Force (which computes a per-entity acceleration independently),
 collision needs to compare PAIRS of objects, so it's handled as an extra
 phase in World.step() rather than through the physics2d Force system.
 
 Two kinds of collision are handled here:
-  1. entity vs entity  -- both have a CircleCollider (`.physics2d.collider()`)
-  2. entity vs solid    -- an entity with a CircleCollider against an SEO
-                            object (`.seo.solid()`), which may be a box or
-                            a circle, and may itself be physics-capable
-                            (a "physicsified" solid) or purely static
+  1. entity vs entity  -- both have a collider (`.physics2d.collider()`),
+                            circle or box, any combination
+  2. entity vs solid    -- an entity with a collider against an SEO
+                            object (`.seo.solid()`), box or circle, which
+                            may itself be physics-capable ("physicsified")
+                            or purely static
+
+Box collision uses SAT (separating axis theorem, see sat.py) -- correct
+for oriented (rotated) boxes, not just axis-aligned ones. A physicsified
+SEO box uses its own `.angle` if it has one; a purely static SEO box has
+no angle at all and is treated as axis-aligned.
 
 Uses a spatial hash for the entity-entity broad-phase (see
-spatial_hash.py) instead of a naive O(n^2) scan, so this scales well
-past a few dozen colliding objects. Entity-vs-solid checks stay a
-simple scan against the (usually much shorter) solids list.
+spatial_hash.py) instead of a naive O(n^2) scan. Entity-vs-solid checks
+stay a simple scan against the (usually much shorter) solids list.
 
 resolve_all_collisions() returns a list of CollisionEvent for whatever
 was actually resolved this step -- World.step() uses this to dispatch
-on_collision callbacks (both world.on_collision() and per-object
-.physics2d.on_collision()), apply torque from off-center impulses, and
-wake sleeping objects that got hit.
+on_collision callbacks, apply torque from off-center impulses, and wake
+sleeping objects that got hit.
 """
 from __future__ import annotations
+import math
 from .vector import Vec2
 from .physics_core import compute_total_acceleration, has_physics
 from .seo import SEOShapeBox, SEOShapeCircle
 from .spatial_hash import SpatialHash
+from .physics2d.box_collider import BoxCollider
+from .sat import sat_box_vs_box, closest_point_on_box, box_axes
 
 
 class CollisionEvent:
@@ -49,7 +57,7 @@ class CollisionEvent:
 def should_collide(a, b) -> bool:
     """Symmetric-AND layer filter: a pair only collides if EACH side's
     collides_with (when set) includes the other's layer. Works on
-    anything with .layer/.collides_with (CircleCollider or SEO)."""
+    anything with .layer/.collides_with (CircleCollider, BoxCollider, or SEO)."""
     if a.collides_with is not None and b.layer not in a.collides_with:
         return False
     if b.collides_with is not None and a.layer not in b.collides_with:
@@ -75,6 +83,14 @@ def _apply_torque_from_impulse(entity, contact_point: Vec2, impulse_applied: Vec
     entity.angular_velocity += torque / moi
 
 
+def _bounding_radius(collider) -> float:
+    """Conservative bounding-circle radius, used only for spatial-hash
+    cell sizing -- safe (never too small) for either shape."""
+    if isinstance(collider, BoxCollider):
+        return math.hypot(collider.width / 2.0, collider.height / 2.0)
+    return collider.radius
+
+
 def resolve_all_collisions(entities, solids) -> list:
     """entities: physics-capable objects (may or may not have a collider).
     solids: SEO objects to check entities against (may or may not be
@@ -92,9 +108,15 @@ def resolve_all_collisions(entities, solids) -> list:
                 continue
             if not should_collide(entity._collider, solid.seo):
                 continue
-            if isinstance(solid.seo.shape, SEOShapeBox):
+            entity_is_box = isinstance(entity._collider, BoxCollider)
+            solid_is_box = isinstance(solid.seo.shape, SEOShapeBox)
+            if entity_is_box and solid_is_box:
+                _resolve_box_vs_seo_box(entity, solid, events)
+            elif entity_is_box and not solid_is_box:
+                _resolve_box_vs_seo_circle(entity, solid, events)
+            elif not entity_is_box and solid_is_box:
                 _resolve_circle_vs_box(entity, solid, events)
-            elif isinstance(solid.seo.shape, SEOShapeCircle):
+            else:
                 _resolve_circle_vs_circle_solid(entity, solid, events)
 
     return events
@@ -105,10 +127,7 @@ def _resolve_entity_entity_collisions(colliders, events) -> None:
     if n < 2:
         return
 
-    # cell size >= any possible collision distance (sum of the two
-    # largest radii) guarantees no true overlap gets missed -- this only
-    # reduces which pairs get checked, never which pairs actually collide
-    max_radius = max(c._collider.radius for c in colliders)
+    max_radius = max(_bounding_radius(c._collider) for c in colliders)
     grid = SpatialHash(cell_size=max(max_radius * 2.0, 1e-6))
     grid.rebuild(colliders)
 
@@ -122,22 +141,27 @@ def _resolve_entity_entity_collisions(colliders, events) -> None:
             seen.add((i, j))
             if not should_collide(a._collider, b._collider):
                 continue
-            _resolve_entity_pair(a, b, events)
+            a_is_box = isinstance(a._collider, BoxCollider)
+            b_is_box = isinstance(b._collider, BoxCollider)
+            if a_is_box and b_is_box:
+                _resolve_box_vs_box_pair(a, b, events)
+            elif a_is_box and not b_is_box:
+                _resolve_circle_vs_box_pair(b, a, events)  # (circle, box) order
+            elif not a_is_box and b_is_box:
+                _resolve_circle_vs_box_pair(a, b, events)
+            else:
+                _resolve_entity_pair(a, b, events)
 
 
-def _resolve_entity_pair(a, b, events) -> None:
+# --- shared impulse/correction core, used by every pairing below ---
+
+def _apply_pair_impulse(a, b, normal: Vec2, overlap: float, contact_point: Vec2,
+                         events, restitution_a=None, restitution_b=None) -> None:
+    """normal points from a to b. Used for entity-entity pairs (both
+    always physics-capable, from the `colliders` list)."""
     ca, cb = a._collider, b._collider
-    delta = b.position - a.position
-    dist = delta.length()
-    min_dist = ca.radius + cb.radius
-    if dist >= min_dist:
-        return
-    if dist == 0:
-        delta = Vec2(1e-4, 0.0)
-        dist = delta.length()
-
-    normal = delta / dist
-    overlap = min_dist - dist
+    ra = ca.restitution if restitution_a is None else restitution_a
+    rb = cb.restitution if restitution_b is None else restitution_b
 
     inv_mass_a = 0.0 if ca.static else 1.0 / max(a.mass, 1e-9)
     inv_mass_b = 0.0 if cb.static else 1.0 / max(b.mass, 1e-9)
@@ -158,7 +182,7 @@ def _resolve_entity_pair(a, b, events) -> None:
     rel_vel = b.velocity - a.velocity
     vel_along_normal = rel_vel.dot(normal)
     if vel_along_normal <= 0:
-        restitution = min(ca.restitution, cb.restitution)
+        restitution = min(ra, rb)
         impulse_mag = -(1 + restitution) * vel_along_normal / total_inv_mass
         impulse = normal * impulse_mag
         if not ca.static:
@@ -171,7 +195,6 @@ def _resolve_entity_pair(a, b, events) -> None:
     if not cb.static:
         b._prev_accel = compute_total_acceleration(b)
 
-    contact_point = (a.position + b.position) * 0.5
     if not ca.static:
         _apply_torque_from_impulse(a, contact_point, -impulse)
     if not cb.static:
@@ -180,35 +203,98 @@ def _resolve_entity_pair(a, b, events) -> None:
     events.append(CollisionEvent(a, b, contact_point, normal, impulse))
 
 
+def _resolve_entity_pair(a, b, events) -> None:
+    """circle vs circle (entity-entity)."""
+    ca, cb = a._collider, b._collider
+    delta = b.position - a.position
+    dist = delta.length()
+    min_dist = ca.radius + cb.radius
+    if dist >= min_dist:
+        return
+    if dist == 0:
+        delta = Vec2(1e-4, 0.0)
+        dist = delta.length()
+
+    normal = delta / dist
+    overlap = min_dist - dist
+    contact_point = (a.position + b.position) * 0.5
+    _apply_pair_impulse(a, b, normal, overlap, contact_point, events)
+
+
+def _resolve_box_vs_box_pair(a, b, events) -> None:
+    """box vs box (entity-entity), oriented via each entity's .angle."""
+    ca, cb = a._collider, b._collider
+    result = sat_box_vs_box(a.position, a.angle, ca.width / 2.0, ca.height / 2.0,
+                             b.position, b.angle, cb.width / 2.0, cb.height / 2.0)
+    if result is None:
+        return
+    normal, overlap = result  # points from a to b
+    contact_point = (a.position + b.position) * 0.5
+    _apply_pair_impulse(a, b, normal, overlap, contact_point, events)
+
+
+def _resolve_circle_vs_box_pair(circle_entity, box_entity, events) -> None:
+    """circle vs box (entity-entity). Event/impulse convention: normal
+    points from circle_entity (a) to box_entity (b), matching the
+    (a, b) argument order used everywhere else."""
+    circle_c = circle_entity._collider
+    box_c = box_entity._collider
+    hw, hh = box_c.width / 2.0, box_c.height / 2.0
+
+    closest, inside, local_x, local_y = closest_point_on_box(
+        circle_entity.position, box_entity.position, box_entity.angle, hw, hh)
+
+    if inside:
+        ax, ay = box_axes(box_entity.angle)
+        dx = hw - abs(local_x)
+        dy = hh - abs(local_y)
+        if dx < dy:
+            normal = ax * (-1.0 if local_x >= 0 else 1.0)  # points box->circle = a->b
+            overlap = dx + circle_c.radius
+        else:
+            normal = ay * (-1.0 if local_y >= 0 else 1.0)
+            overlap = dy + circle_c.radius
+        contact_point = closest
+    else:
+        delta = circle_entity.position - closest
+        dist = delta.length()
+        if dist >= circle_c.radius:
+            return
+        normal = delta / dist  # points box->circle = a->b
+        overlap = circle_c.radius - dist
+        contact_point = closest
+
+    _apply_pair_impulse(circle_entity, box_entity, normal, overlap, contact_point, events)
+
+
+# --- entity vs SEO solid (existing circle-vs-* cases, plus new box-vs-*) ---
+
 def _resolve_circle_vs_box(circle_entity, box_obj, events) -> None:
     collider = circle_entity._collider
     shape = box_obj.seo.shape
-    half_w = shape.width / 2.0
-    half_h = shape.height / 2.0
-    box_center = box_obj.position
+    solid_angle = getattr(box_obj, "angle", 0.0)
+    hw, hh = shape.width / 2.0, shape.height / 2.0
 
-    closest_x = max(box_center.x - half_w, min(circle_entity.position.x, box_center.x + half_w))
-    closest_y = max(box_center.y - half_h, min(circle_entity.position.y, box_center.y + half_h))
-    closest = Vec2(closest_x, closest_y)
+    closest, inside, local_x, local_y = closest_point_on_box(
+        circle_entity.position, box_obj.position, solid_angle, hw, hh)
 
-    delta = circle_entity.position - closest
-    dist = delta.length()
-
-    if dist == 0:
-        # circle center is inside the box -- push out along the shallowest axis
-        dx = (half_w + collider.radius) - abs(circle_entity.position.x - box_center.x)
-        dy = (half_h + collider.radius) - abs(circle_entity.position.y - box_center.y)
+    if inside:
+        ax, ay = box_axes(solid_angle)
+        dx = hw - abs(local_x)
+        dy = hh - abs(local_y)
         if dx < dy:
-            normal = Vec2(1.0 if circle_entity.position.x >= box_center.x else -1.0, 0.0)
-            overlap = dx
+            normal = ax * (1.0 if local_x >= 0 else -1.0)
+            overlap = dx + collider.radius
         else:
-            normal = Vec2(0.0, 1.0 if circle_entity.position.y >= box_center.y else -1.0)
-            overlap = dy
-    elif dist < collider.radius:
+            normal = ay * (1.0 if local_y >= 0 else -1.0)
+            overlap = dy + collider.radius
+    else:
+        delta = circle_entity.position - closest
+        dist = delta.length()
+        if dist >= collider.radius:
+            return
         normal = delta / dist
         overlap = collider.radius - dist
-    else:
-        return  # not overlapping
 
     _apply_solid_impulse(circle_entity, box_obj, normal, overlap, closest, events)
 
@@ -229,10 +315,58 @@ def _resolve_circle_vs_circle_solid(circle_entity, solid_obj, events) -> None:
     _apply_solid_impulse(circle_entity, solid_obj, normal, overlap, contact_point, events)
 
 
+def _resolve_box_vs_seo_box(box_entity, seo_obj, events) -> None:
+    collider = box_entity._collider
+    shape = seo_obj.seo.shape
+    seo_angle = getattr(seo_obj, "angle", 0.0)
+    result = sat_box_vs_box(box_entity.position, box_entity.angle,
+                             collider.width / 2.0, collider.height / 2.0,
+                             seo_obj.position, seo_angle,
+                             shape.width / 2.0, shape.height / 2.0)
+    if result is None:
+        return
+    normal, overlap = result  # points from box_entity to seo_obj (entity->solid)
+    contact_point = (box_entity.position + seo_obj.position) * 0.5
+    # _apply_solid_impulse wants solid->entity, so flip
+    _apply_solid_impulse(box_entity, seo_obj, normal * -1.0, overlap, contact_point, events)
+
+
+def _resolve_box_vs_seo_circle(box_entity, seo_obj, events) -> None:
+    collider = box_entity._collider
+    shape = seo_obj.seo.shape
+    hw, hh = collider.width / 2.0, collider.height / 2.0
+    closest, inside, local_x, local_y = closest_point_on_box(
+        seo_obj.position, box_entity.position, box_entity.angle, hw, hh)
+
+    if inside:
+        ax, ay = box_axes(box_entity.angle)
+        dx = hw - abs(local_x)
+        dy = hh - abs(local_y)
+        if dx < dy:
+            normal = ax * (1.0 if local_x >= 0 else -1.0)
+            overlap = dx + shape.radius
+        else:
+            normal = ay * (1.0 if local_y >= 0 else -1.0)
+            overlap = dy + shape.radius
+        contact_point = closest
+    else:
+        delta = closest - seo_obj.position  # points from circle center to box surface = solid->entity
+        dist = delta.length()
+        if dist >= shape.radius:
+            return
+        normal = delta / dist
+        overlap = shape.radius - dist
+        contact_point = closest
+
+    _apply_solid_impulse(box_entity, seo_obj, normal, overlap, contact_point, events)
+
+
 def _apply_solid_impulse(entity, solid_obj, normal: Vec2, overlap: float,
                           contact_point: Vec2, events) -> None:
     """Shared impulse/positional-correction math for entity-vs-SEO
-    collisions. `normal` points from the solid toward the entity."""
+    collisions. `normal` points from the solid toward the entity.
+    Shape-agnostic -- works for circle or box entities identically,
+    since it only reads entity._collider.restitution (both shapes have it)."""
     solid_is_movable = has_physics(solid_obj)
 
     inv_mass_a = 1.0 / max(entity.mass, 1e-9)

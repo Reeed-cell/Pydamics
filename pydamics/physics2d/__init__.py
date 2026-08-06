@@ -24,6 +24,7 @@ from .forces import (
     Vortex, GasPush, Torque, ConstantTorque,
 )
 from .collider import CircleCollider
+from .box_collider import BoxCollider
 
 
 class Physics2D:
@@ -104,15 +105,23 @@ class Physics2D:
     # --- collider shape ---
 
     def collider(self, radius: float = 0.5, restitution: float = 0.6,
-                 static: bool = False, layer: str = "default",
-                 collides_with=None) -> CircleCollider:
-        """Give this object a circular collision shape -- the World's
-        step() will detect and resolve overlaps with other colliders
-        (and with SEO solids) automatically. `layer`/`collides_with`
-        filter which other colliders/solids this one actually interacts
-        with (symmetric-AND -- see CircleCollider for details)."""
-        c = CircleCollider(radius=radius, restitution=restitution, static=static,
-                            layer=layer, collides_with=collides_with)
+                 static: bool = False, layer: str = "default", collides_with=None,
+                 shape: str = "circle", width: float = 1.0, height: float = 1.0):
+        """Give this object a collision shape -- the World's step() will
+        detect and resolve overlaps with other colliders (and with SEO
+        solids) automatically. `layer`/`collides_with` filter which
+        other colliders/solids this one actually interacts with
+        (symmetric-AND -- see CircleCollider for details).
+
+        shape="circle" (default, uses radius) or shape="box" (uses
+        width/height, oriented by the entity's `.angle` -- rotate it by
+        setting angle/angular_velocity/torque like anything else)."""
+        if shape == "box":
+            c = BoxCollider(width=width, height=height, restitution=restitution,
+                             static=static, layer=layer, collides_with=collides_with)
+        else:
+            c = CircleCollider(radius=radius, restitution=restitution, static=static,
+                                layer=layer, collides_with=collides_with)
         self._entity._collider = c
         return c
 
@@ -222,6 +231,6 @@ class Physics2D:
 
 __all__ = [
     "Physics2D", "Force", "Gravity", "Fluid", "Friction", "Spring", "Wind",
-    "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider",
+    "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider", "BoxCollider",
     "Torque", "ConstantTorque",
 ]

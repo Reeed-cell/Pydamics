@@ -170,6 +170,19 @@ entities that have a `.physics2d.collider(...)` -- impulse-based, with a
 `restitution` (bounciness) you set per object; the lower of the two
 objects' restitution values is used per collision.
 
+### Box colliders
+
+```python
+crate.physics2d.collider(shape="box", width=1.5, height=1.5, restitution=0.3)
+```
+
+Oriented (rotated) boxes, not just axis-aligned -- a box collider follows
+the entity's `.angle`, so spin it like anything else (torque, an
+off-center hit, `.angle`/`.angular_velocity` directly) and collision keeps
+working correctly. Uses SAT (separating axis theorem) under the hood.
+Every combination works: box-vs-box, box-vs-circle, and box-vs-SEO-solid
+(box or circle), including corner-only contact between two rotated boxes.
+
 ### Layers and masks
 
 Filter what collides with what:
@@ -197,6 +210,40 @@ Fires once per step for every collision actually resolved (entity-entity
 or entity-vs-solid). `world.on_collision`'s `normal` points from `a` to
 `b`; the per-object `.physics2d.on_collision` gets a normal pointing
 *away from* the other object (i.e. "the direction I got pushed").
+
+## Raycasting
+
+"What's the nearest thing along this line?" -- for line-of-sight checks,
+click-to-select, laser/projectile logic:
+
+```python
+hit = world.raycast(origin=(0, 0), direction=Vec2(1, 0), max_distance=50)
+if hit:
+    print(hit.entity, hit.point, hit.distance, hit.normal)
+
+hits = world.raycast_all(origin=(0, 0), direction=Vec2(1, 0), max_distance=50)
+# every hit along the ray, nearest first
+```
+
+Works against both entities and SEO solids, circle or box shapes
+(respecting rotation), and takes an optional `collides_with` set for the
+same layer filtering as collision. `direction` doesn't need to be
+normalized. Pathfinding built on repeated raycasts is out of scope here
+-- that's app/AI-layer logic, not physics.
+
+## Spatial queries
+
+"Give me everything within this radius/rect" -- for AOE damage, aggro
+range, minimap/radar logic:
+
+```python
+nearby = world.query_radius(center=(0, 0), radius=50)
+in_box = world.query_rect(min_point=(0, 0), max_point=(100, 100))
+```
+
+Checks entity `.position` against the region (not collider-shape-aware)
+-- matches the simple "who's nearby" check most of this kind of logic
+actually wants. Uses the same spatial hash as collision broad-phase.
 
 ## Trigger / sensor zones
 
@@ -399,16 +446,12 @@ See [pydamicsvisual](https://pypi.org/project/pydamicsvisual/) for details.
 
 ## Roadmap
 
-**Staged for v0.5.1:**
-- [ ] Raycasting (`world.raycast(...)`, `world.raycast_all(...)`)
-- [ ] Dynamic box/capsule colliders for moving entities (currently circles only for movers; boxes exist for SEO solids)
-- [ ] Spatial query API (`world.query_radius(...)`, `world.query_box(...)`)
-
 **Further out:**
 - [ ] 3D physics namespace (`entity.physics3d`)
-- [ ] Polygon collision shapes
+- [ ] Polygon collision shapes beyond boxes; capsule colliders (deliberately cut from v0.5.1 -- not as well-specified as boxes were)
 - [ ] Joints/constraints (pin, distance, fixed, rope) -- likely its own v0.6.0, this is a bigger undertaking than anything above (iterative constraint solver)
 - [ ] Tangential/friction impulses (would let circular movers pick up spin from off-center contact, not just boxes)
+- [ ] Pathfinding built on raycasting (deliberately out of scope for the physics engine itself -- app/AI-layer logic)
 
 ## Publishing (for maintainers)
 
@@ -448,3 +491,14 @@ uploads it to PyPI automatically. From then on, anyone can:
 ```bash
 pip install pydamics
 ```
+
+## License
+
+Kiko Python Software Studio License (MIT-based, with additional usage
+terms) -- see [LICENSE](LICENSE). In short: free to use, modify, and
+ship in your own commercial or non-commercial projects, but credit
+pydamics/Kiko Python Software Studio somewhere reasonable (a
+README/about/credits screen), don't claim you authored the engine
+itself, and don't use it to build malicious or NSFW content. This is
+**not** the plain MIT License and isn't OSI-approved open source, due
+to the added restrictions -- see the LICENSE file for the exact terms.

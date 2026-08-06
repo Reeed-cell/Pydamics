@@ -4,18 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydamics"
-version = "0.5.0"
+version = "0.5.1"
 description = "A small, chainable-syntax 2D (and eventually 3D) physics engine."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = { text = "Kiko Python Software Studio License (MIT-based, with additional usage terms; see LICENSE)" }
 authors = [
     { name = "Kiko" }
 ]
 keywords = ["physics", "engine", "simulation", "2d", "game-dev"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Topic :: Games/Entertainment",
     "Topic :: Scientific/Engineering :: Physics",

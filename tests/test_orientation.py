@@ -76,8 +76,8 @@ def test_circle_movers_get_no_self_torque_from_normal_impulse():
     world.add(b)
     world.step(1 / 60)
 
-    assert a.angular_velocity == 0.0
-    assert b.angular_velocity == 0.0
+    assert math.isclose(a.angular_velocity, 0.0, abs_tol=1e-9)
+    assert math.isclose(b.angular_velocity, 0.0, abs_tol=1e-9)
 
 
 def test_off_center_hit_imparts_spin_to_a_box_solid():

@@ -108,7 +108,7 @@ from .physics_core import (
 )
 from .physics2d import (
     Physics2D, Gravity, Fluid, Friction, Spring, Wind, Attractor, Vortex,
-    Buoyancy, GasPush, CircleCollider, Force, Torque, ConstantTorque,
+    Buoyancy, GasPush, CircleCollider, BoxCollider, Force, Torque, ConstantTorque,
 )
 from .fluid_zone import FluidZone
 from .gas import GasZone
@@ -122,13 +122,15 @@ from .collision import resolve_all_collisions, should_collide, CollisionEvent
 from .spatial_hash import SpatialHash
 from .classify import classify, kind_of
 from .trigger import TriggerZone
+from .raycast import RaycastHit
+from .sat import sat_box_vs_box, closest_point_on_box, box_axes
 
 __all__ = [
     "Entity", "World", "Vec2",
     "attach", "has_physics", "compute_total_acceleration", "compute_total_torque",
     "PhysicsObject", "physics_class",
     "Physics2D", "Gravity", "Fluid", "Friction", "Spring", "Wind",
-    "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider", "Force",
+    "Attractor", "Vortex", "Buoyancy", "GasPush", "CircleCollider", "BoxCollider", "Force",
     "Torque", "ConstantTorque",
     "FluidZone", "GasZone",
     "SEO", "SEOShapeBox", "SEOShapeCircle", "solidify", "is_solid", "SolidObject", "solid_class",
@@ -136,6 +138,7 @@ __all__ = [
     "resolve_all_collisions", "should_collide", "CollisionEvent", "SpatialHash",
     "classify", "kind_of",
     "TriggerZone",
+    "RaycastHit", "sat_box_vs_box", "closest_point_on_box", "box_axes",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"

@@ -18,6 +18,8 @@ import time
 from .integrators import velocity_verlet_step
 from .physics_core import has_physics
 from .collision import resolve_all_collisions
+from .raycast import raycast as _raycast, raycast_all as _raycast_all
+from .spatial_query import query_radius as _query_radius, query_rect as _query_rect
 
 
 class World:
@@ -91,6 +93,32 @@ class World:
     @property
     def solids(self):
         return list(self._solids)
+
+    # --- spatial queries ---
+
+    def _all_solids(self):
+        return self._solids + [e for e in self._entities if hasattr(e, "seo")]
+
+    def raycast(self, origin, direction, max_distance: float = float("inf"), collides_with=None):
+        """Nearest collidable object (entity or SEO solid) along the ray,
+        or None. `direction` doesn't need to be normalized."""
+        return _raycast(self._entities, self._all_solids(), origin, direction,
+                         max_distance, collides_with)
+
+    def raycast_all(self, origin, direction, max_distance: float = float("inf"), collides_with=None):
+        """Every collidable object the ray passes through, nearest first."""
+        return _raycast_all(self._entities, self._all_solids(), origin, direction,
+                             max_distance, collides_with)
+
+    def query_radius(self, center, radius: float):
+        """Every entity whose position is within `radius` of `center`
+        (a plain distance check on position, not collider-shape-aware --
+        matches the simple "who's nearby" check most AOE/aggro logic wants)."""
+        return _query_radius(self._entities, center, radius)
+
+    def query_rect(self, min_point, max_point):
+        """Every entity whose position falls within the given rectangle."""
+        return _query_rect(self._entities, min_point, max_point)
 
     # --- manual stepping ---
     def step(self, dt: float = 1 / 60) -> None:
